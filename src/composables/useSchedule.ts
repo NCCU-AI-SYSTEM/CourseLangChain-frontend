@@ -106,6 +106,48 @@ export function useSchedule() {
     }
   };
 
+  /**
+   * 一鍵套用聊天裡推薦的整份排課方案。
+   *
+   * course_ids 來自 SSE 側通道的 plans 事件(未經 LLM 轉述的原始 13 碼),
+   * 直接整批送後端;衝堂替換、學分計算仍由後端 scheduler 決定,前端不自己算。
+   *
+   * - replace=true(預設):整張課表換成這個方案
+   * - replace=false:疊加在現有課表上,撞到的舊課才讓位
+   *
+   * 單門課加失敗不會讓整批失敗,後端會收進 failed 一起回報 —— 所以這裡要把
+   * 失敗的門數講出來,否則使用者只會看到課表少了幾門而不知道為什麼。
+   */
+  const applyPlan = async (courseIds: string[], replace = true) => {
+    loading.value = true;
+    lastMessage.value = "";
+    try {
+      const res = await axios.post("/api/schedule/apply", {
+        session_id: sessionId.value,
+        course_ids: courseIds,
+        replace,
+      });
+      apply(res.data);
+      const applied: ScheduleCourse[] = res.data.applied ?? [];
+      const removed: ScheduleCourse[] = res.data.removed ?? [];
+      const failed: { course_id: string; error: string }[] = res.data.failed ?? [];
+      const parts = [`已套用 ${applied.length} 門課`];
+      if (removed.length) {
+        parts.push(`替換掉原本的 ${removed.map((c) => c.name).join("、")}`);
+      }
+      if (failed.length) {
+        parts.push(`${failed.length} 門沒能加入(${failed[0].error})`);
+      }
+      lastMessage.value = parts.join(",");
+      return failed.length === 0;
+    } catch (err: any) {
+      lastMessage.value = err?.response?.data?.detail ?? "套用失敗,請稍後再試";
+      return false;
+    } finally {
+      loading.value = false;
+    }
+  };
+
   const removeCourse = async (courseId: string) => {
     loading.value = true;
     try {
@@ -149,6 +191,7 @@ export function useSchedule() {
     loadTerms,
     refresh,
     addCourse,
+    applyPlan,
     removeCourse,
     clearSchedule,
     resetLocal,

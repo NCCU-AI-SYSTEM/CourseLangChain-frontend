@@ -72,6 +72,7 @@ import SchedulePanel from "./components/SchedulePanel.vue";
 import { useSession } from "./composables/useSession";
 import { useSchedule } from "./composables/useSchedule";
 import { useProfile } from "./composables/useProfile";
+import { usePreference } from "./composables/usePreference";
 
 const scrollTarget = ref<HTMLDivElement | null>(null);
 const scrollBox = ref<HTMLDivElement | null>(null);
@@ -105,16 +106,20 @@ const timer = ref(0);
 const { sessionId, resetSession } = useSession();
 const { refresh: refreshSchedule, resetLocal: resetScheduleLocal } = useSchedule();
 const { resetLocal: resetProfileLocal } = useProfile();
+const { resetLocal: resetPreferenceLocal } = usePreference();
 
 /**
  * 清空畫面時一併換掉 session,否則後端仍記得剛剛被清掉的那段對話。
  * 課表與成績單都掛在 session 上,換 id 等同全部重來,本地狀態也要跟著清。
+ * 志願序草稿是純前端的,但它的牌堆來自課表與這段對話的候選課 —— 兩者都沒了,
+ * 留著一份指向不存在課程的順序只會誤導。
  */
 const startNewChat = () => {
   history.value = [];
   resetSession();
   resetScheduleLocal();
   resetProfileLocal();
+  resetPreferenceLocal();
 };
 
 const chat = (e?: Event) => {

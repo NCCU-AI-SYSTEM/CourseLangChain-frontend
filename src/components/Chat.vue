@@ -33,6 +33,7 @@
         ></span>
         <VueMarkdown v-else :source="output" class="overflow-auto" />
         <CourseCandidates v-if="candidates.length" :courses="candidates" />
+        <SchedulePlans v-if="plans.length" :plans="plans" />
         <!--
           錯誤獨立顯示,不進 markdown 串流。技術細節預設摺疊,但一定看得到 ——
           先前它被丟棄,畫面上只剩「系統發生錯誤」,連是哪個例外都不知道。
@@ -63,6 +64,7 @@ import { Icon } from "@iconify/vue";
 import { useEventSource } from "@vueuse/core";
 import VueMarkdown from "vue-markdown-render";
 import CourseCandidates from "./CourseCandidates.vue";
+import SchedulePlans from "./SchedulePlans.vue";
 
 const props = defineProps<{
   input: string;
@@ -78,6 +80,10 @@ const canStop = ref(false);
 const outputError = ref(false);
 // 後端側通道送來的候選課程,渲染成「加入課表」卡片(course_id 未經 LLM 轉述)
 const candidates = ref<CourseCandidate[]>([]);
+// 同一條側通道送來的排課方案,渲染成「套用此方案」卡片。
+// 排課時同一輪可能呼叫兩次 schedule_tool(候選不夠再補一次),後到的整組取代前一組
+// —— 兩組的「方案 1」是不同東西,疊在一起會出現兩個方案 1,使用者無從分辨。
+const plans = ref<SchedulePlan[]>([]);
 
 // --- 等待狀態列 ---------------------------------------------------------
 // 這個元件一掛載就發出請求(useEventSource 在 setup 就開始連),所以計時從這裡起算。
@@ -139,6 +145,8 @@ watch(data, (value) => {
   if (payload.type) {
     if (payload.type === "courses") {
       candidates.value.push(...(payload.courses ?? []));
+    } else if (payload.type === "plans") {
+      plans.value = payload.plans ?? [];
     } else if (payload.type === "status") {
       statusText.value = payload.text ?? "";
     }

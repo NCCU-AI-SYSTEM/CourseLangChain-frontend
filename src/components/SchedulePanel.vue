@@ -64,20 +64,37 @@
       </p>
 
       <!-- 檢視切換:週課表 / 清單 -->
-      <div class="tabs tabs-boxed tabs-sm self-start">
+      <div class="flex items-center gap-2">
+        <div class="tabs tabs-boxed tabs-sm grow">
+          <button
+            class="tab"
+            :class="{ 'tab-active': view === 'week' }"
+            @click="view = 'week'"
+          >
+            週課表
+          </button>
+          <button
+            class="tab"
+            :class="{ 'tab-active': view === 'list' }"
+            @click="view = 'list'"
+          >
+            清單
+          </button>
+        </div>
+        <!--
+          志願序是「選課系統要填的申請順序」,與這份已敲定的課表是兩件事,
+          所以做成另一個畫面而不是課表的第三個分頁。
+        -->
         <button
-          class="tab"
-          :class="{ 'tab-active': view === 'week' }"
-          @click="view = 'week'"
+          class="btn btn-sm btn-ghost shrink-0"
+          @click="showPreference = true"
+          title="用滑卡的方式排志願序"
         >
-          週課表
-        </button>
-        <button
-          class="tab"
-          :class="{ 'tab-active': view === 'list' }"
-          @click="view = 'list'"
-        >
-          清單
+          <Icon icon="mingcute:list-ordered-line" class="h-4 w-4" />
+          志願序
+          <span v-if="entries.length" class="badge badge-primary badge-sm">
+            {{ entries.length }}
+          </span>
         </button>
       </div>
 
@@ -138,6 +155,8 @@
         加入的課若與現有課程衝堂、或是同一門課的另一個班,會自動替換掉舊的那幾門。
       </p>
     </div>
+
+    <PreferenceSwipe v-if="showPreference" @close="showPreference = false" />
   </div>
 </template>
 
@@ -145,12 +164,18 @@
 import { onMounted, ref, watch } from "vue";
 import { Icon } from "@iconify/vue";
 import WeekTimetable from "./WeekTimetable.vue";
+import PreferenceSwipe from "./PreferenceSwipe.vue";
 import { useSchedule, type ScheduleCourse } from "../composables/useSchedule";
+import { usePreference } from "../composables/usePreference";
 
 const open = ref(true);
 const newId = ref("");
 const view = ref<"week" | "list">("week");
 const highlightId = ref("");
+const showPreference = ref(false);
+
+// 只為了在入口按鈕上顯示「已排幾門」;實際互動全在 PreferenceSwipe 裡
+const { entries } = usePreference();
 
 /** 點週課表上的色塊 → 切到清單並高亮那門課(清單才有移除鈕)。 */
 const scrollToCourse = (course: ScheduleCourse) => {
