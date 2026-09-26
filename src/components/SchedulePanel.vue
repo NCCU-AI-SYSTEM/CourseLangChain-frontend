@@ -82,13 +82,13 @@
           </button>
         </div>
         <!--
-          志願序是「選課系統要填的申請順序」,與這份已敲定的課表是兩件事,
-          所以做成另一個畫面而不是課表的第三個分頁。
+          志願序是「選課系統要填的申請順序」,與這份已敲定的課表是兩件事
+          (可以含最後沒選上的課),所以做成另一個畫面而不是課表的第三個分頁。
         -->
         <button
           class="btn btn-sm btn-ghost shrink-0"
           @click="showPreference = true"
-          title="用滑卡的方式排志願序"
+          title="編輯選課要填的志願序"
         >
           <Icon icon="mingcute:list-ordered-line" class="h-4 w-4" />
           志願序
@@ -156,7 +156,7 @@
       </p>
     </div>
 
-    <PreferenceSwipe v-if="showPreference" @close="showPreference = false" />
+    <PreferenceList v-if="showPreference" @close="showPreference = false" />
   </div>
 </template>
 
@@ -164,7 +164,7 @@
 import { onMounted, ref, watch } from "vue";
 import { Icon } from "@iconify/vue";
 import WeekTimetable from "./WeekTimetable.vue";
-import PreferenceSwipe from "./PreferenceSwipe.vue";
+import PreferenceList from "./PreferenceList.vue";
 import { useSchedule, type ScheduleCourse } from "../composables/useSchedule";
 import { usePreference } from "../composables/usePreference";
 
@@ -174,7 +174,7 @@ const view = ref<"week" | "list">("week");
 const highlightId = ref("");
 const showPreference = ref(false);
 
-// 只為了在入口按鈕上顯示「已排幾門」;實際互動全在 PreferenceSwipe 裡
+// 只為了在入口按鈕上顯示「已排幾門」;實際互動全在 PreferenceList 裡
 const { entries } = usePreference();
 
 /** 點週課表上的色塊 → 切到清單並高亮那門課(清單才有移除鈕)。 */

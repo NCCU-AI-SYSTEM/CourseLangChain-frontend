@@ -1,9 +1,10 @@
 /**
- * 志願序編號規則測試(純函數,不需要瀏覽器)。
+ * 志願序清單測試(純邏輯,不需要瀏覽器)。
  *
  * 跑法(專案沒有測試框架,與 useTimetableLayout.test.ts 同一套):
  *   npx tsx src/composables/usePreference.test.ts
  */
+
 /*
  * usePreference → useSchedule → useSession 這條 import 鏈在模組載入時就會讀
  * sessionStorage,Node 裡沒有這個東西。先補一個最小替身,再用動態 import 載入被測
@@ -16,7 +17,7 @@ const store = new Map<string, string>();
   removeItem: (k: string) => void store.delete(k),
 };
 
-const { MAX_ORDER, orderNumber } = await import("./usePreference");
+const { MAX_ORDER, orderNumber, usePreference } = await import("./usePreference");
 
 let pass = 0;
 let fail = 0;
@@ -58,10 +59,7 @@ for (const n of [1, 2, 3, 4, 7, 9, 12, 30, 99, 100, 137]) {
     s.every((v, i) => i === 0 || v >= s[i - 1]),
     `${n} 門:編號不遞減`
   );
-  check(
-    s.every((v) => Number.isInteger(v)),
-    `${n} 門:編號都是整數`
-  );
+  check(s.every((v) => Number.isInteger(v)), `${n} 門:編號都是整數`);
   // 100 門以內每個編號都該是唯一的;超過 100 門必然要並列,這是選課系統的硬上限
   if (n <= MAX_ORDER) {
     check(new Set(s).size === n, `${n} 門:編號兩兩不同`);
@@ -77,6 +75,74 @@ for (const n of [3, 6, 7, 13]) {
     `${n} 門:每一個都是上一個 + ${step}`
   );
 }
+
+// ---------------------------------------------------------------------------
+// 清單操作。usePreference 的狀態是模組級共享的,所以每組測試前先 clear()。
+// ---------------------------------------------------------------------------
+const course = (id: string, name: string) => ({
+  course_id: id,
+  name,
+  time: "一234",
+  teacher: "王老師",
+  credits: "3",
+});
+
+const A = course("1151000000001", "甲課");
+const B = course("1151000000002", "乙課");
+const C = course("1151000000003", "丙課");
+
+const { entries, has, add, addMany, remove, toggle, move, clear } = usePreference();
+const ids = () => entries.value.map((e) => e.course_id);
+const orders = () => entries.value.map((e) => e.order);
+
+console.log("[加入 / 移除]");
+clear();
+check(entries.value.length === 0, "clear 後是空的");
+add(A);
+add(B);
+check(JSON.stringify(ids()) === JSON.stringify([A.course_id, B.course_id]), "依加入順序保序");
+add(A);
+check(entries.value.length === 2, "重複加入同一門不會變兩筆");
+check(has(A.course_id) && !has(C.course_id), "has 判斷正確");
+remove(A.course_id);
+check(JSON.stringify(ids()) === JSON.stringify([B.course_id]), "移除指定的那門");
+remove("不存在的id");
+check(entries.value.length === 1, "移除不存在的 id 沒有副作用");
+
+console.log("[toggle]");
+clear();
+toggle(A);
+check(has(A.course_id), "toggle 未在清單 → 加入");
+toggle(A);
+check(!has(A.course_id), "toggle 已在清單 → 移除");
+
+console.log("[addMany]");
+clear();
+add(A);
+const added = addMany([A, B, C, B]);
+check(added === 2, `已在清單的與重複的都跳過(實際加入 ${added} 門)`);
+check(
+  JSON.stringify(ids()) === JSON.stringify([A.course_id, B.course_id, C.course_id]),
+  "接在既有清單後面且不重複"
+);
+
+console.log("[排序與編號重算]");
+clear();
+addMany([A, B, C]);
+check(JSON.stringify(orders()) === JSON.stringify([33, 66, 99]), "3 門的編號是 33/66/99");
+move(C.course_id, -1);
+check(
+  JSON.stringify(ids()) === JSON.stringify([A.course_id, C.course_id, B.course_id]),
+  "往前挪一格"
+);
+check(JSON.stringify(orders()) === JSON.stringify([33, 66, 99]), "挪動後編號跟著換到新位置");
+move(A.course_id, -1);
+check(ids()[0] === A.course_id, "已在第一列再往前 → 不動");
+move(B.course_id, 1);
+check(ids()[2] === B.course_id, "已在最後一列再往後 → 不動");
+remove(C.course_id);
+check(JSON.stringify(orders()) === JSON.stringify([50, 100]), "刪一門後編號從 33/66/99 重算成 50/100");
+clear();
 
 console.log(`\n結果:${pass} passed, ${fail} failed`);
 // 用 throw 而非 process.exit:一樣會讓退出碼非零,又不必為了型別引入 @types/node

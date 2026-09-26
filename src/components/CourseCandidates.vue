@@ -3,7 +3,7 @@
     <p class="text-xs opacity-70">
       查到的課程,可直接加入課表,或用
       <Icon icon="mingcute:star-line" class="h-3 w-3 inline align-text-bottom" />
-      挑進志願序牌堆:
+      加進志願序:
     </p>
 
     <div
@@ -36,19 +36,20 @@
           {{ inSchedule(c.course_id) ? "已加入" : "加入課表" }}
         </button>
         <!--
-          挑進志願序牌堆。刻意與「加入課表」分開:志願序是選課系統要填的申請順序,
+          加進志願序。刻意與「加入課表」分開:志願序是選課系統要填的申請順序,
           可以包含最後沒選上的課;課表是已經敲定的那份。混成同一顆按鈕會讓
-          「我到底排了什麼」變得說不清楚。課表裡的課會自動進牌堆,不必再挑一次。
+          「我到底排了什麼」變得說不清楚。
         -->
         <button
           class="btn btn-xs btn-ghost"
-          :class="{ 'text-primary': inDeck(c.course_id) }"
-          :disabled="inSchedule(c.course_id)"
-          @click="togglePool(toPreference(c))"
-          :title="preferenceHint(c.course_id)"
+          :class="{ 'text-primary': inPreference(c.course_id) }"
+          @click="togglePreference(toPreference(c))"
+          :title="inPreference(c.course_id) ? '從志願序移除' : '加進志願序'"
         >
           <Icon
-            :icon="inDeck(c.course_id) ? 'mingcute:star-fill' : 'mingcute:star-line'"
+            :icon="
+              inPreference(c.course_id) ? 'mingcute:star-fill' : 'mingcute:star-line'
+            "
             class="h-4 w-4"
           />
           志願序
@@ -89,8 +90,8 @@ const {
   addCourse,
 } = useSchedule();
 
-// 志願序牌堆同樣是模組級共享狀態:這裡挑進去的課,課表面板的「排志願序」直接就看得到。
-const { inPool, togglePool } = usePreference();
+// 志願序清單同樣是模組級共享狀態:這裡加進去的課,面板的「志願序」直接就看得到。
+const { has: inPreference, toggle: togglePreference } = usePreference();
 
 /** 候選課 → 志願序卡片。兩邊只有 credits 的型別不同(這裡是字串)。 */
 const toPreference = (c: CourseCandidate): PreferenceCourse => ({
@@ -107,20 +108,6 @@ const message = ref("");
 
 const inSchedule = (id: string) =>
   scheduled.value.some((c) => c.course_id === id);
-
-/**
- * 這門課會不會出現在志願序牌堆裡。
- *
- * 課表裡的課**一律自動納入**牌堆(usePreference 的 deck 就是這樣組的),
- * 所以那些課的星星要是亮的、而且不能取消 —— 否則畫面說「沒挑」、滑卡時卻出現,
- * 使用者會以為是 bug。
- */
-const inDeck = (id: string) => inSchedule(id) || inPool(id);
-
-const preferenceHint = (id: string) => {
-  if (inSchedule(id)) return "課表裡的課已自動納入志願序牌堆";
-  return inPool(id) ? "從志願序牌堆移除" : "挑進志願序牌堆";
-};
 
 const add = async (id: string) => {
   await addCourse(id);
