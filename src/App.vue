@@ -72,6 +72,7 @@ import SchedulePanel from "./components/SchedulePanel.vue";
 import { useSession } from "./composables/useSession";
 import { useSchedule } from "./composables/useSchedule";
 import { useProfile } from "./composables/useProfile";
+import { useMoodle } from "./composables/useMoodle";
 import { usePreference } from "./composables/usePreference";
 
 const scrollTarget = ref<HTMLDivElement | null>(null);
@@ -107,15 +108,20 @@ const { sessionId, resetSession } = useSession();
 const { refresh: refreshSchedule, resetLocal: resetScheduleLocal } = useSchedule();
 const { resetLocal: resetProfileLocal } = useProfile();
 const { resetLocal: resetPreferenceLocal } = usePreference();
+const { logout: logoutMoodle, resetLocal: resetMoodleLocal } = useMoodle();
 
 /**
  * 清空畫面時一併換掉 session,否則後端仍記得剛剛被清掉的那段對話。
  * 課表與成績單都掛在 session 上,換 id 等同全部重來,本地狀態也要跟著清。
  * 志願序清單是純前端的,但裡面的課來自課表與這段對話的候選課 —— 兩者都沒了,
  * 留著一份指向舊對話的志願序只會誤導。
+ * Moodle 帳密同樣掛在 session 上,而且**必須在換 id 之前**登出 —— 換了 id 就再也
+ * 叫不動舊 session 的登出,那組密碼會留在後端記憶體裡直到程序重啟。
  */
 const startNewChat = () => {
   history.value = [];
+  logoutMoodle(sessionId.value); // 不等回應:畫面不該卡在這一步
+  resetMoodleLocal(); // 立刻把「已連結」拿掉;不能等 logout 的 Promise,那時 id 已經換了
   resetSession();
   resetScheduleLocal();
   resetProfileLocal();
