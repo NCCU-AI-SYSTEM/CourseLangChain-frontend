@@ -39,7 +39,13 @@
           >
             <span class="badge badge-primary badge-sm shrink-0 w-10">{{ e.order }}</span>
             <div class="grow min-w-0">
-              <p class="text-sm truncate" :title="e.name">{{ e.name }}</p>
+              <button
+                class="text-sm truncate block w-full text-left hover:underline underline-offset-2"
+                :title="`${e.name}(點擊看課程大綱)`"
+                @click="openDetail(e.course_id)"
+              >
+                {{ e.name }}
+              </button>
               <p class="text-xs opacity-50 truncate">
                 {{ e.time || "時間未定" }} ・ {{ e.teacher || "－" }}
               </p>
@@ -87,6 +93,7 @@
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import { Icon } from "@iconify/vue";
 import { MAX_ORDER, usePreference } from "../composables/usePreference";
+import { useCourseDetail } from "../composables/useCourseDetail";
 
 /**
  * 志願序表單。
@@ -101,6 +108,7 @@ const emits = defineEmits<{ (e: "close"): void }>();
 
 const { entries, addMany, remove, move, clear, scheduleNotInList, asText } =
   usePreference();
+const { open: openDetail } = useCourseDetail();
 
 const step = computed(() =>
   Math.max(1, Math.floor(MAX_ORDER / Math.max(1, entries.value.length)))

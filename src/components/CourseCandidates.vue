@@ -1,24 +1,35 @@
 <template>
   <div class="mt-3 flex flex-col gap-2">
     <p class="text-xs opacity-70">
-      查到的課程,可直接加入課表,或用
+      查到的課程:點課名看完整大綱,也可以直接加入課表,或用
       <Icon icon="mingcute:star-line" class="h-3 w-3 inline align-text-bottom" />
-      加進志願序:
+      加進志願序。
     </p>
 
     <div
       v-for="c in courses"
       :key="c.course_id"
-      class="bg-base-100 text-base-content rounded-lg p-2 flex gap-2 items-start"
+      class="bg-base-100 text-base-content rounded-xl p-3 flex gap-3 items-start shadow-sm"
     >
       <div class="grow min-w-0">
-        <p class="font-medium text-sm truncate" :title="c.name">{{ c.name }}</p>
-        <p class="text-xs opacity-70">
-          {{ c.time || "時間未定" }} ・ {{ c.credits || "?" }} 學分
-        </p>
-        <p class="text-xs opacity-50 truncate">
-          {{ c.teacher || "－" }} ・ {{ c.course_id }}
-        </p>
+        <button
+          class="font-medium text-sm text-left line-clamp-2 hover:underline underline-offset-2"
+          :title="`${c.name}(點擊看課程大綱)`"
+          @click="openDetail(c.course_id)"
+        >
+          {{ c.name }}
+        </button>
+        <div class="flex flex-wrap gap-x-3 gap-y-0.5 mt-1 text-xs opacity-70">
+          <span class="flex items-center gap-1">
+            <Icon icon="mingcute:user-3-line" class="h-3 w-3" />{{ c.teacher || "－" }}
+          </span>
+          <span class="flex items-center gap-1">
+            <Icon icon="mingcute:time-line" class="h-3 w-3" />{{ c.time || "時間未定" }}
+          </span>
+          <span class="flex items-center gap-1">
+            <Icon icon="mingcute:book-2-line" class="h-3 w-3" />{{ c.credits || "?" }} 學分
+          </span>
+        </div>
       </div>
       <div class="flex flex-col gap-1 shrink-0 items-stretch">
         <button
@@ -54,6 +65,10 @@
           />
           志願序
         </button>
+        <button class="btn btn-xs btn-ghost" @click="openDetail(c.course_id)">
+          <Icon icon="mingcute:document-line" class="h-4 w-4" />
+          詳細
+        </button>
       </div>
     </div>
 
@@ -66,6 +81,7 @@
 <script setup lang="ts">
 import { ref } from "vue";
 import { Icon } from "@iconify/vue";
+import { useCourseDetail } from "../composables/useCourseDetail";
 import { useSchedule } from "../composables/useSchedule";
 import {
   usePreference,
@@ -80,6 +96,9 @@ import {
  * 加課走既有的 useSchedule().addCourse(),衝堂替換與學分計算全由後端 scheduler 決定。
  */
 defineProps<{ courses: CourseCandidate[] }>();
+
+// 點課名或「詳細」打開課程卡片(全頁共用一張,掛在 App.vue)
+const { open: openDetail } = useCourseDetail();
 
 // courses / loading / lastMessage 是 useSchedule 的模組級共享狀態:
 // 這裡按下加入,右側課表面板會同步更新,不必另外通知。

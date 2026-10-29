@@ -26,7 +26,13 @@
           class="text-xs flex gap-2 items-baseline"
         >
           <span class="opacity-60 shrink-0 w-12">{{ c.time || "未定" }}</span>
-          <span class="truncate grow" :title="c.name">{{ c.name }}</span>
+          <button
+            class="truncate grow text-left hover:underline underline-offset-2"
+            :title="`${c.name}(點擊看課程大綱)`"
+            @click="openDetail(c.course_id)"
+          >
+            {{ c.name }}
+          </button>
           <span class="opacity-50 shrink-0 truncate max-w-[6rem]">
             {{ c.teacher || "－" }}
           </span>
@@ -55,6 +61,7 @@
 import { ref } from "vue";
 import { Icon } from "@iconify/vue";
 import { useSchedule } from "../composables/useSchedule";
+import { useCourseDetail } from "../composables/useCourseDetail";
 
 /**
  * 聊天結果下方的「套用推薦課表」卡片。
@@ -68,6 +75,8 @@ import { useSchedule } from "../composables/useSchedule";
  * 就會有第二套規則,遲早跟後端走鐘。
  */
 defineProps<{ plans: SchedulePlan[] }>();
+
+const { open: openDetail } = useCourseDetail();
 
 // courses / loading / lastMessage 是 useSchedule 的模組級共享狀態:
 // 這裡套用後右側課表面板會同步更新,不必另外通知。

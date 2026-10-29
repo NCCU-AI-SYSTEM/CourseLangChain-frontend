@@ -121,9 +121,13 @@
           :class="{ 'ring-2 ring-primary': highlightId === c.course_id }"
         >
           <div class="grow min-w-0">
-            <p class="font-medium text-sm truncate" :title="c.name">
+            <button
+              class="font-medium text-sm truncate block w-full text-left hover:underline underline-offset-2"
+              :title="`${c.name}(點擊看課程大綱)`"
+              @click="openDetail(c.course_id)"
+            >
               {{ c.name }}
-            </p>
+            </button>
             <p class="text-xs opacity-70">
               {{ c.time || "時間未定" }} ・ {{ c.credits }} 學分
             </p>
@@ -165,6 +169,7 @@ import { onMounted, ref, watch } from "vue";
 import { Icon } from "@iconify/vue";
 import WeekTimetable from "./WeekTimetable.vue";
 import PreferenceList from "./PreferenceList.vue";
+import { useCourseDetail } from "../composables/useCourseDetail";
 import { useSchedule, type ScheduleCourse } from "../composables/useSchedule";
 import { usePreference } from "../composables/usePreference";
 
@@ -173,6 +178,7 @@ const newId = ref("");
 const view = ref<"week" | "list">("week");
 const highlightId = ref("");
 const showPreference = ref(false);
+const { open: openDetail } = useCourseDetail();
 
 // 只為了在入口按鈕上顯示「已排幾門」;實際互動全在 PreferenceList 裡
 const { entries } = usePreference();

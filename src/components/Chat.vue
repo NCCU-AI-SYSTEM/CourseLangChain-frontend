@@ -6,7 +6,7 @@
     <div class="chat chat-start">
       <div class="avatar placeholder self-end mr-1">
         <div class="bg-success text-success-content rounded-full w-10">
-          <span class="text-sm">B</span>
+          <span class="text-sm">助</span>
         </div>
       </div>
       <!--
@@ -50,7 +50,7 @@
         <Teleport to="#StopGeneration">
           <button class="btn" @click="close" v-if="canStop">
             <Icon icon="mingcute:stop-line" class="w-4 h-4" />
-            Stop Generate
+            停止生成
           </button>
         </Teleport>
       </div>

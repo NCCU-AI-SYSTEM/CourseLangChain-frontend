@@ -28,40 +28,29 @@
               :disabled="chatting"
               type="text"
               v-model="input"
-              placeholder="Type here"
+              placeholder="輸入問題,例如:星期三下午有什麼 AI 相關的課?"
+              aria-label="輸入問題"
               class="input input-bordered w-full"
             />
           </div>
-          <button class="btn btn-square" type="submit" :disabled="chatting">
+          <button class="btn btn-square btn-primary" type="submit" :disabled="chatting" title="送出">
             <Icon icon="mingcute:send-fill" class="h-6 w-6" />
           </button>
-          <label for="my-upload">
-            <div
-              class="btn btn-square cursor-pointer"
-              :class="{ 'btn-disabled': chatting }"
-            >
-              <Icon icon="mingcute:mic-fill" class="h-6 w-6" />
-            </div>
-            <input
-              id="my-upload"
-              type="file"
-              accept="audio/*"
-              @change.prevent="handleUpload"
-              :disabled="chatting"
-              capture
-              hidden
-            />
-          </label>
         </form>
+        <p class="text-xs opacity-50 px-4 pb-1 -mt-2">
+          按 Enter 送出。回答通常需要幾十秒;助理可能出錯,正式選課前請以學校系統為準。
+        </p>
       </div>
 
       <SchedulePanel />
     </div>
+    <!-- 全頁共用的彈出視窗:任何地方點課名、按「使用說明」都開這兩個 -->
+    <CourseDetail />
+    <HelpGuide />
   </div>
 </template>
 
 <script setup lang="ts">
-import axios from "axios";
 import { themeChange } from "theme-change";
 import { onMounted, ref, nextTick } from "vue";
 import Chat from "./components/Chat.vue";
@@ -69,6 +58,8 @@ import NavBar from "./components/NavBar.vue";
 import { Icon } from "@iconify/vue";
 import Intro from "./components/Intro.vue";
 import SchedulePanel from "./components/SchedulePanel.vue";
+import CourseDetail from "./components/CourseDetail.vue";
+import HelpGuide from "./components/HelpGuide.vue";
 import { useSession } from "./composables/useSession";
 import { useSchedule } from "./composables/useSchedule";
 import { useProfile } from "./composables/useProfile";
@@ -135,25 +126,6 @@ const chat = (e?: Event) => {
   input.value = "";
   chatting.value = true;
   startAutoScroll();
-};
-
-const handleUpload = (e: Event) => {
-  e.preventDefault();
-  const formData = new FormData();
-  const files = (e.target as HTMLInputElement).files;
-  if (!files) return;
-  formData.append("file", files[0]);
-  chatting.value = true;
-  axios
-    .post("/api/upload", formData, {
-      headers: {
-        "Content-Type": "multipart/form-data",
-      },
-    })
-    .then((res) => {
-      history.value.push(res.data.text);
-      startAutoScroll();
-    });
 };
 
 const finishChat = (message: ChatMessage) => {
