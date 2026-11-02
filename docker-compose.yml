@@ -1,0 +1,11 @@
+services:
+  build_dist:
+    build:
+      context: .
+      target: base_env
+    volumes:
+      - .:/app
+      - ./dist:/app/dist
+      - /app/node_modules
+    command: ["pnpm", "run", "build"]
+  

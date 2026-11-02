@@ -1,73 +1,123 @@
 <template>
   <div class="h-full flex flex-col">
-    <NavBar @delete="history = []" />
-    <div class="grow flex flex-col p-2 gap-4 overflow-hidden">
-      <div
-        class="h-full rounded-xl flex flex-col gap-4 py-6 px-2 overflow-auto"
-      >
-        <Chat
-          :input="i"
-          v-for="i in history"
-          :key="i"
-          @finish="finishChat"
-          @error="finishErrorChat"
-        />
-        <Intro v-if="history.length == 0" @click="handleIntroClick" />
-        <div v-else ref="scrollTarget" />
-      </div>
-      <form class="shrink flex gap-2 p-2 relative" @submit="chat">
+    <NavBar @delete="startNewChat" />
+    <div class="grow flex flex-col md:flex-row p-2 gap-2 overflow-hidden">
+      <div class="grow flex flex-col gap-4 overflow-hidden">
         <div
-          class="absolute top-0 flex justify-center w-full mt-[-3rem]"
-          id="StopGeneration"
-        ></div>
-        <div class="form-control w-full">
-          <input
-            :disabled="chatting"
-            type="text"
-            v-model="input"
-            placeholder="Type here"
-            class="input input-bordered w-full"
+          ref="scrollBox"
+          class="h-full rounded-xl flex flex-col gap-4 py-6 px-2 overflow-auto"
+        >
+          <Chat
+            :input="i"
+            :session-id="sessionId"
+            v-for="(i, idx) in history"
+            :key="idx"
+            @finish="finishChat"
+            @error="finishErrorChat"
           />
+          <Intro v-if="history.length == 0" @click="handleIntroClick" />
+          <div v-else ref="scrollTarget" />
         </div>
-        <button class="btn btn-square" type="submit" :disabled="chatting">
-          <Icon icon="mingcute:send-fill" class="h-6 w-6" />
-        </button>
-        <label for="my-upload">
+        <form class="shrink flex gap-2 p-2 relative" @submit="chat">
           <div
-            class="btn btn-square cursor-pointer"
-            :class="{ 'btn-disabled': chatting }"
-          >
-            <Icon icon="mingcute:mic-fill" class="h-6 w-6" />
+            class="absolute top-0 flex justify-center w-full mt-[-3rem]"
+            id="StopGeneration"
+          ></div>
+          <div class="form-control w-full">
+            <input
+              :disabled="chatting"
+              type="text"
+              v-model="input"
+              placeholder="輸入問題,例如:星期三下午有什麼 AI 相關的課?"
+              aria-label="輸入問題"
+              class="input input-bordered w-full"
+            />
           </div>
-          <input
-            id="my-upload"
-            type="file"
-            accept="audio/*"
-            @change.prevent="handleUpload"
-            :disabled="chatting"
-            capture
-            hidden
-          />
-        </label>
-      </form>
+          <button class="btn btn-square btn-primary" type="submit" :disabled="chatting" title="送出">
+            <Icon icon="mingcute:send-fill" class="h-6 w-6" />
+          </button>
+        </form>
+        <p class="text-xs opacity-50 px-4 pb-1 -mt-2">
+          按 Enter 送出。回答通常需要幾十秒;助理可能出錯,正式選課前請以學校系統為準。
+        </p>
+      </div>
+
+      <SchedulePanel />
     </div>
+    <!-- 全頁共用的彈出視窗:任何地方點課名、按「使用說明」都開這兩個 -->
+    <CourseDetail />
+    <HelpGuide />
   </div>
 </template>
 
 <script setup lang="ts">
-import axios from "axios";
 import { themeChange } from "theme-change";
 import { onMounted, ref, nextTick } from "vue";
 import Chat from "./components/Chat.vue";
 import NavBar from "./components/NavBar.vue";
 import { Icon } from "@iconify/vue";
 import Intro from "./components/Intro.vue";
+import SchedulePanel from "./components/SchedulePanel.vue";
+import CourseDetail from "./components/CourseDetail.vue";
+import HelpGuide from "./components/HelpGuide.vue";
+import { useSession } from "./composables/useSession";
+import { useSchedule } from "./composables/useSchedule";
+import { useProfile } from "./composables/useProfile";
+import { useMoodle } from "./composables/useMoodle";
+import { usePreference } from "./composables/usePreference";
 
 const scrollTarget = ref<HTMLDivElement | null>(null);
+const scrollBox = ref<HTMLDivElement | null>(null);
+
+/**
+ * 自動捲動只在「使用者本來就在底部」時才作用。
+ *
+ * 先前是無條件每 100ms 捲一次,生成期間往上滑會立刻被拉回底部 ——
+ * 一題要跑數十分鐘,等於整段時間都無法回頭看先前的對話與耗時。
+ * 80px 的容忍值讓「幾乎在底部」也算數,不必剛好貼齊。
+ */
+const isNearBottom = () => {
+  const el = scrollBox.value;
+  if (!el) return true;
+  return el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+};
+
+const startAutoScroll = () => {
+  clearInterval(timer.value);
+  // 300ms 就夠:最終答案現在是一次到位,不再逐 token 增長
+  timer.value = setInterval(() => {
+    if (isNearBottom()) scrollTarget.value?.scrollIntoView({ behavior: "smooth" });
+  }, 300);
+};
 const chatting = ref(false);
 const input = ref("");
 const history = ref<string[]>([]);
 const timer = ref(0);
+
+// sessionId 會隨每則提問送到後端當 thread_id,多輪對話才接得起來
+const { sessionId, resetSession } = useSession();
+const { refresh: refreshSchedule, resetLocal: resetScheduleLocal } = useSchedule();
+const { resetLocal: resetProfileLocal } = useProfile();
+const { resetLocal: resetPreferenceLocal } = usePreference();
+const { logout: logoutMoodle, resetLocal: resetMoodleLocal } = useMoodle();
+
+/**
+ * 清空畫面時一併換掉 session,否則後端仍記得剛剛被清掉的那段對話。
+ * 課表與成績單都掛在 session 上,換 id 等同全部重來,本地狀態也要跟著清。
+ * 志願序清單是純前端的,但裡面的課來自課表與這段對話的候選課 —— 兩者都沒了,
+ * 留著一份指向舊對話的志願序只會誤導。
+ * Moodle 帳密同樣掛在 session 上,而且**必須在換 id 之前**登出 —— 換了 id 就再也
+ * 叫不動舊 session 的登出,那組密碼會留在後端記憶體裡直到程序重啟。
+ */
+const startNewChat = () => {
+  history.value = [];
+  logoutMoodle(sessionId.value); // 不等回應:畫面不該卡在這一步
+  resetMoodleLocal(); // 立刻把「已連結」拿掉;不能等 logout 的 Promise,那時 id 已經換了
+  resetSession();
+  resetScheduleLocal();
+  resetProfileLocal();
+  resetPreferenceLocal();
+};
 
 const chat = (e?: Event) => {
   if (e) e.preventDefault();
@@ -75,40 +125,15 @@ const chat = (e?: Event) => {
   history.value.push(input.value);
   input.value = "";
   chatting.value = true;
-  if (scrollTarget.value) {
-    timer.value = setInterval(() => {
-      scrollTarget.value!.scrollIntoView({ behavior: "smooth" });
-    }, 100);
-  }
-};
-
-const handleUpload = (e: Event) => {
-  e.preventDefault();
-  const formData = new FormData();
-  const files = (e.target as HTMLInputElement).files;
-  if (!files) return;
-  formData.append("file", files[0]);
-  chatting.value = true;
-  axios
-    .post("/api/upload", formData, {
-      headers: {
-        "Content-Type": "multipart/form-data",
-      },
-    })
-    .then((res) => {
-      history.value.push(res.data.text);
-      if (scrollTarget.value) {
-        timer.value = setInterval(() => {
-          scrollTarget.value!.scrollIntoView({ behavior: "smooth" });
-        }, 100);
-      }
-    });
+  startAutoScroll();
 };
 
 const finishChat = (message: ChatMessage) => {
   console.log(message);
   clearInterval(timer.value);
   chatting.value = false;
+  // 助理可能在這輪用 my_schedule_tool 改過課表,拉一次最新狀態回來
+  refreshSchedule();
 };
 
 const finishErrorChat = () => {

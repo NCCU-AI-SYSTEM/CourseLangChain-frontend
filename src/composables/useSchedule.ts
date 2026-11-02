@@ -1,0 +1,199 @@
+import axios from "axios";
+import { ref } from "vue";
+import { useSession } from "./useSession";
+
+/**
+ * 「目前已排定的課表」——與後端 tools/session_schedule 同一份資料。
+ *
+ * 面板上的手動增刪、以及 agent 在對話中做的變更,改的都是後端那一份,
+ * 衝堂判斷也由後端(scheduler.py 的純函數)決定,前端不自己算。
+ */
+export interface ScheduleCourse {
+  course_id: string;
+  name: string;
+  credits: number;
+  time: string;
+  teacher: string;
+  slots: [string, string][];
+}
+
+/** 學期選單的一個選項。選項來自後端(data.db 實際有資料的學期),前端不寫死年份。 */
+export interface Term {
+  value: string; // "1142" —— 4 碼,course_id 的前綴
+  // data.db 的 y / s 欄位是 TEXT,所以實際拿到的是字串;只用於顯示,不做算術
+  year: string | number;
+  semester: string | number;
+  count: number;
+}
+
+const courses = ref<ScheduleCourse[]>([]);
+const totalCredits = ref(0);
+const loading = ref(false);
+const lastMessage = ref("");
+const terms = ref<Term[]>([]);
+const currentTerm = ref("");
+
+export function useSchedule() {
+  const { sessionId } = useSession();
+
+  const apply = (data: any) => {
+    courses.value = data.courses ?? [];
+    totalCredits.value = data.total_credits ?? 0;
+  };
+
+  /**
+   * 載入學期選單。選項一律由後端給(data.db 實際有的學期),前端不寫死 112~115 之類的
+   * 範圍——寫死的話使用者會選到沒有資料的學期,拿到「找不到課程代碼」而以為是 bug。
+   */
+  const loadTerms = async () => {
+    const res = await axios.get("/api/terms");
+    terms.value = res.data.terms ?? [];
+    if (!currentTerm.value) {
+      currentTerm.value = res.data.current ?? terms.value[0]?.value ?? "";
+    }
+  };
+
+  const refresh = async () => {
+    loading.value = true;
+    try {
+      const res = await axios.get("/api/schedule", {
+        params: { session_id: sessionId.value },
+      });
+      apply(res.data);
+    } finally {
+      loading.value = false;
+    }
+  };
+
+  /**
+   * 加課。後端遇衝堂、或加入同一門課的另一個班時,會自動移除舊的那幾門,
+   * 並回傳 removed 與 removed_reasons({course_id: "same_name"|"conflict"})供提示。
+   */
+  const addCourse = async (courseId: string, term?: string) => {
+    loading.value = true;
+    lastMessage.value = "";
+    try {
+      const res = await axios.post("/api/schedule", {
+        session_id: sessionId.value,
+        course_id: courseId.trim(),
+        // 只有輸入 9 碼時後端才會用到 term 來補前綴;13 碼一律原樣通過
+        term: term ?? currentTerm.value,
+      });
+      apply(res.data);
+      const removed: ScheduleCourse[] = res.data.removed ?? [];
+      const reasons: Record<string, string> = res.data.removed_reasons ?? {};
+      if (res.data.already) {
+        lastMessage.value = `${res.data.added.name} 已經在課表裡了`;
+      } else if (removed.length) {
+        // 一律照後端標記的原因講 —— 同名換班時說「衝堂」是假的,會讓人以為時間撞了
+        const names = removed
+          .map((c) => {
+            const why =
+              reasons[c.course_id] === "same_name" ? "同一門課的另一班" : "衝堂";
+            return `${c.name}(${c.time},${why})`;
+          })
+          .join("、");
+        lastMessage.value = `已加入 ${res.data.added.name},已移除:${names}`;
+      } else {
+        lastMessage.value = `已加入 ${res.data.added.name}`;
+      }
+      return true;
+    } catch (err: any) {
+      lastMessage.value = err?.response?.data?.detail ?? "加入失敗,請確認課程代碼";
+      return false;
+    } finally {
+      loading.value = false;
+    }
+  };
+
+  /**
+   * 一鍵套用聊天裡推薦的整份排課方案。
+   *
+   * course_ids 來自 SSE 側通道的 plans 事件(未經 LLM 轉述的原始 13 碼),
+   * 直接整批送後端;衝堂替換、學分計算仍由後端 scheduler 決定,前端不自己算。
+   *
+   * - replace=true(預設):整張課表換成這個方案
+   * - replace=false:疊加在現有課表上,撞到的舊課才讓位
+   *
+   * 單門課加失敗不會讓整批失敗,後端會收進 failed 一起回報 —— 所以這裡要把
+   * 失敗的門數講出來,否則使用者只會看到課表少了幾門而不知道為什麼。
+   */
+  const applyPlan = async (courseIds: string[], replace = true) => {
+    loading.value = true;
+    lastMessage.value = "";
+    try {
+      const res = await axios.post("/api/schedule/apply", {
+        session_id: sessionId.value,
+        course_ids: courseIds,
+        replace,
+      });
+      apply(res.data);
+      const applied: ScheduleCourse[] = res.data.applied ?? [];
+      const removed: ScheduleCourse[] = res.data.removed ?? [];
+      const failed: { course_id: string; error: string }[] = res.data.failed ?? [];
+      const parts = [`已套用 ${applied.length} 門課`];
+      if (removed.length) {
+        parts.push(`替換掉原本的 ${removed.map((c) => c.name).join("、")}`);
+      }
+      if (failed.length) {
+        parts.push(`${failed.length} 門沒能加入(${failed[0].error})`);
+      }
+      lastMessage.value = parts.join(",");
+      return failed.length === 0;
+    } catch (err: any) {
+      lastMessage.value = err?.response?.data?.detail ?? "套用失敗,請稍後再試";
+      return false;
+    } finally {
+      loading.value = false;
+    }
+  };
+
+  const removeCourse = async (courseId: string) => {
+    loading.value = true;
+    try {
+      const res = await axios.delete("/api/schedule", {
+        params: { session_id: sessionId.value, course_id: courseId },
+      });
+      apply(res.data);
+      lastMessage.value = "";
+    } finally {
+      loading.value = false;
+    }
+  };
+
+  const clearSchedule = async () => {
+    loading.value = true;
+    try {
+      const res = await axios.delete("/api/schedule", {
+        params: { session_id: sessionId.value },
+      });
+      apply(res.data);
+      lastMessage.value = "";
+    } finally {
+      loading.value = false;
+    }
+  };
+
+  /** 換 session(開新對話)後,把面板的本地狀態也清乾淨。 */
+  const resetLocal = () => {
+    courses.value = [];
+    totalCredits.value = 0;
+    lastMessage.value = "";
+  };
+
+  return {
+    courses,
+    totalCredits,
+    loading,
+    lastMessage,
+    terms,
+    currentTerm,
+    loadTerms,
+    refresh,
+    addCourse,
+    applyPlan,
+    removeCourse,
+    clearSchedule,
+    resetLocal,
+  };
+}
