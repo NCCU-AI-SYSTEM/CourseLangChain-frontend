@@ -1,3 +1,4 @@
+import axios from "axios";
 import { computed, ref, watch } from "vue";
 import { useSchedule, type ScheduleCourse } from "./useSchedule";
 
@@ -135,6 +136,11 @@ export function usePreference() {
     list.value = [];
   };
 
+  /** 依課號清單重排(套用建議排序用)。 */
+  const reorder = (ids: string[]) => {
+    list.value = reorderByIds(list.value, ids);
+  };
+
   /** 開新對話時一併清掉:課表與候選課都換了,舊志願序沒有意義。 */
   const resetLocal = clear;
 
@@ -160,8 +166,146 @@ export function usePreference() {
     toggle,
     move,
     clear,
+    reorder,
     resetLocal,
     scheduleNotInList,
     asText,
   };
+}
+
+/**
+ * 依課號清單重排。ids 裡沒有的課(例如查詢期間使用者又加了一門)接在最後,不會被弄丟;
+ * ids 裡有、清單沒有的課號直接略過。
+ */
+export function reorderByIds<T extends { course_id: string }>(items: T[], ids: string[]): T[] {
+  const byId = new Map(items.map((c) => [c.course_id, c]));
+  const ordered = ids.map((id) => byId.get(id)).filter((c): c is T => c !== undefined);
+  const seen = new Set(ordered.map((c) => c.course_id));
+  return [...ordered, ...items.filter((c) => !seen.has(c.course_id))];
+}
+
+// ── 選上機率(後端 /api/preference/chances,官方分發結果的存活分析) ──────────
+
+/** 查詢一門課的機率。rank 是清單裡的名次(第幾志願),不是畫面上的 33/66/99。 */
+export interface ChanceRequest {
+  course_id: string;
+  time: string;
+  rank: number;
+}
+
+/** 後端回的一筆。沒有官方歷史的課(必修、選修、新開的班次)只有 available: false。 */
+export interface PreferenceChance {
+  course_id: string;
+  rank: number;
+  available: boolean;
+  probability?: number;
+  label?: string;
+  terms?: number;
+  full_terms?: number;
+  strictest?: number | null;
+  validated?: boolean;
+}
+
+export type ChanceTone = "success" | "warning" | "error" | "ghost";
+
+/**
+ * 清單 → 機率查詢。
+ *
+ * 政大會把填的數字重新編成第 1、2、3…志願(填的數字只決定先後),
+ * 所以機率要看「第幾列」;33/66/99 只是方便日後插入,和選上機率無關。
+ */
+export function chanceRequests(entries: PreferenceCourse[]): ChanceRequest[] {
+  return entries.map((e, i) => ({ course_id: e.course_id, time: e.time, rank: i + 1 }));
+}
+
+/**
+ * 機率 → 徽章。顏色界線與後端 preference_survival.describe 一致(0.7「很有機會」、0.4「一半一半」)。
+ * 還沒查到、或查到的是別的名次(剛調整過順序)時回 null,畫面先不顯示,避免閃出舊名次的數字。
+ */
+export function chanceBadge(
+  c: PreferenceChance | undefined,
+  rank: number
+): { text: string; tone: ChanceTone; title: string } | null {
+  if (!c || c.rank !== rank) return null;
+  if (!c.available || c.probability === undefined) {
+    return {
+      text: "無官方資料",
+      tone: "ghost",
+      title: "官方分發結果只涵蓋通識與體育；必修、選修與新開的班次資料不足，不提供預測",
+    };
+  }
+  const p = c.probability;
+  const tone: ChanceTone = p >= 0.7 ? "success" : p >= 0.4 ? "warning" : "error";
+  const note = c.validated === false ? "（第 10 志願以後的估計沒有經過驗證）" : "";
+  return {
+    text: `約 ${Math.round(p * 100)}%`,
+    tone,
+    title:
+      `排第 ${rank} 志願：${c.label ?? ""}。依這個班次 ${c.terms ?? 0} 個學期的官方分發結果` +
+      `（${c.full_terms ?? 0} 個學期額滿）估計${note}`,
+  };
+}
+
+/** 後端 /api/preference/optimize 的結果。 */
+export interface OrderSuggestion {
+  order: string[]; // 建議順序的課號
+  before: number; // 目前順序的期望選上門數
+  after: number; // 建議順序的期望選上門數
+  changed: boolean;
+  exact: boolean;
+  pinned: string[]; // 沒有官方資料、位置不動的課號
+}
+
+/**
+ * 請後端算「期望選上門數最大」的排法:通識逐門相加、體育最多算一門。
+ * 只是建議 —— 清單的順序也代表「最想上哪一門」,那是機率看不到的。
+ */
+export async function fetchOrderSuggestion(entries: PreferenceCourse[]): Promise<OrderSuggestion> {
+  const items = entries.map((e) => ({ course_id: e.course_id, time: e.time }));
+  const res = await axios.post("/api/preference/optimize", { items });
+  return res.data as OrderSuggestion;
+}
+
+/**
+ * 志願序清單每一列的選上機率。清單一變(加、刪、調順序)就重查。
+ *
+ * 只給志願序面板用:放在 usePreference 裡的話,任何用到 usePreference 的地方(包括測試)
+ * 都會發出網路請求。watch 跟著呼叫它的元件建立與銷毀,面板打開才會查。
+ */
+export function usePreferenceChances() {
+  const { entries } = usePreference();
+  const chances = ref<Record<string, PreferenceChance>>({});
+  const error = ref("");
+  let seq = 0;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+
+  const refresh = async (items: ChanceRequest[]) => {
+    const mine = ++seq;
+    if (!items.length) {
+      chances.value = {};
+      return;
+    }
+    try {
+      const res = await axios.post("/api/preference/chances", { items });
+      if (mine !== seq) return; // 已經有更新的請求,丟掉這個比較舊的結果
+      const next: Record<string, PreferenceChance> = {};
+      for (const c of (res.data.items ?? []) as PreferenceChance[]) next[c.course_id] = c;
+      chances.value = next;
+      error.value = "";
+    } catch {
+      if (mine === seq) error.value = "選上機率暫時無法取得（後端沒有回應）";
+    }
+  };
+
+  watch(
+    () => chanceRequests(entries.value),
+    (items) => {
+      clearTimeout(timer);
+      // 連續按上下移時只查最後一次
+      timer = setTimeout(() => refresh(items), 200);
+    },
+    { immediate: true, deep: true }
+  );
+
+  return { chances, error };
 }

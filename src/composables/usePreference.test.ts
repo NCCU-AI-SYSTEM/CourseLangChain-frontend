@@ -17,7 +17,8 @@ const store = new Map<string, string>();
   removeItem: (k: string) => void store.delete(k),
 };
 
-const { MAX_ORDER, orderNumber, usePreference } = await import("./usePreference");
+const { MAX_ORDER, orderNumber, usePreference, chanceRequests, chanceBadge, reorderByIds } =
+  await import("./usePreference");
 
 let pass = 0;
 let fail = 0;
@@ -143,6 +144,32 @@ check(ids()[2] === B.course_id, "已在最後一列再往後 → 不動");
 remove(C.course_id);
 check(JSON.stringify(orders()) === JSON.stringify([50, 100]), "刪一門後編號從 33/66/99 重算成 50/100");
 clear();
+
+console.log("[選上機率:看第幾列,不看 33/66/99]");
+const timed = (id: string, time: string) => ({ course_id: id, name: id, time, teacher: "", credits: "1" });
+const reqs = chanceRequests([timed("X", "五34"), timed("Y", "二12"), timed("Z", "")]);
+check(JSON.stringify(reqs.map((r) => r.rank)) === "[1,2,3]", "rank 是清單名次 1、2、3(選課系統會重新編號)");
+check(reqs[0].course_id === "X" && reqs[0].time === "五34", "帶課號與時段(班次以這兩個識別)");
+
+const ok = { course_id: "X", rank: 2, available: true, probability: 0.754, label: "很有機會", terms: 4, full_terms: 4, validated: true };
+const b = chanceBadge(ok, 2);
+check(b?.text === "約 75%" && b.tone === "success", "75% 顯示成「約 75%」、綠色");
+check(b?.title.includes("4 個學期") ?? false, "滑鼠提示說明依據");
+check(chanceBadge({ ...ok, probability: 0.43 }, 2)?.tone === "warning", "0.4~0.7 黃色");
+check(chanceBadge({ ...ok, probability: 0.1 }, 2)?.tone === "error", "0.4 以下紅色");
+check(chanceBadge(ok, 3) === null, "查到的名次和現在的名次不同(剛調整順序)→ 先不顯示");
+check(chanceBadge(undefined, 1) === null, "還沒查到 → 不顯示");
+const none = chanceBadge({ course_id: "M", rank: 1, available: false }, 1);
+check(none?.text === "無官方資料" && none.tone === "ghost", "必修等沒有官方資料的課:不給數字");
+check(chanceBadge({ ...ok, rank: 12, validated: false }, 12)?.title.includes("沒有經過驗證") ?? false,
+  "第 10 志願以後註明未驗證");
+
+console.log("[套用建議排序]");
+const abc = [timed("A", ""), timed("B", ""), timed("C", "")];
+const ids2 = (xs: { course_id: string }[]) => xs.map((x) => x.course_id).join("");
+check(ids2(reorderByIds(abc, ["C", "A", "B"])) === "CAB", "依建議的課號順序重排");
+check(ids2(reorderByIds(abc, ["C", "A"])) === "CAB", "建議裡沒有的課(查詢期間新加的)接在最後,不會弄丟");
+check(ids2(reorderByIds(abc, ["X", "B", "A", "C"])) === "BAC", "清單裡已經沒有的課號略過");
 
 console.log(`\n結果:${pass} passed, ${fail} failed`);
 // 用 throw 而非 process.exit:一樣會讓退出碼非零,又不必為了型別引入 @types/node
